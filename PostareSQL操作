@@ -1,0 +1,239 @@
+4.1 登录postgresql数据库
+
+[root@wangning ~]# su - postgres
+-bash-4.2$ psql postgres   #以postgres用户登录数据库，postgres用户是安装是默认创建的，没有登录密码
+
+postgres=# alter user postgres password '123456';   #修改postgres用户密码，这样就可以远程登录了，本地登录无需密码
+postgres=# \l      #查看库列表，以下是安装后默认的库
+postgres=# \list
+postgres=# \du    #查看用户列表，bzh是我自己创建的
+postgres=# \q     #退出数据库
+
+4.2 创建用户和库表
+4.2.1 创建用户
+创建bzh用户，createdb是权限，还有其他权限，比如superuser、createuser等，createdb是最小的权限
+postgres=# create user bzh createdb;
+
+修改bzh的密码为123456
+postgres=# alter user bzh password '123456';
+
+4.2.2 创建库testdb
+postgres=# create database testdb owner bzh;
+create database demo_db with encoding='utf8' ;
+
+将testdb数据库的所有权限都赋予testdb
+postgres=# grant all privileges on database testdb to bzh;
+postgres=# \c testdb   #进入testdb库里
+
+4.2.3 创建test表
+-bash-4.2$ psql -U bzh -h 10.0.0.14 -d testdb  #以bzh用户登录testdb库
+
+testdb=# \d                                    #显示当前库下的所有表
+testdb=# create table test (no int,name text );           #创建test表
+testdb=# insert into test (no,name) values (1,'devops');    #插入数据
+testdb=# select * from test;      #查询test表中所有数据
+
+4.3 删除库和表
+4.3.1 删除testdb库
+postgres=# drop database testdb;
+
+4.4 数据库的导入和导出
+4.4.1 导出数据
+语法
+pg_dump -h localhost -U postgres(用户名) 数据库名(缺省时同用户名)   >/data/dum.sql
+pg_dump -h localhost -U postgres(用户名) 数据库名(缺省时同用户名)  -t table(表名) >/data/dum.sql
+
+将testdb库导出
+[root@wangning ~]# pg_dump -h 10.0.0.14 -U bzh testdb >bzh.sql
+
+指定端口号将tesdb库导出并压缩
+[root@wangning ~]# pg_dump -h 10.0.0.14 -p 5432 -U bzh testdb|gzip >bzh.sql.gz
+
+将test表导出
+[root@wangning ~]# pg_dump -h 10.0.0.14 -U bzh testdb -t test >test.sql
+
+4.4.2 导入数据
+create user yubaotest createdb;
+alter user yubaotest password 'yubaotest123';
+create database yubaotest owner yubaotest;
+grant all privileges on database yubaotest to yubaotest;
+psql -U yubaotest  yubaotest < /data/dum.sql
+
+语法
+psql -U postgres(用户名)  数据库名(缺省时同用户名) < /data/dum.sql
+
+将bzh.sql导入testdb库中，testdb需要提前建好
+[root@wangning ~]# psql -U bzh -h 10.0.0.14 testdb <bzh.sql
+
+将bzh.sql.gz导入testdb库中，testdb需要提前建好
+[root@wangning wangning]# gunzip -c bzh.sql.gz |psql -U postgres -h 10.0.0.14 -p 5432 testdb
+
+5 常见报错
+5.1 psql: FATAL:  database "bzh" does not exist
+12.png
+
+报错原因：如果登录时未指定连接的目标数据库，那么默认数据库名称与用户名相同。
+
+pg_dump -h 10.0.0.14 -U bzh testdb >bzh.sql
+postgres
+
+pg_dump --column-inserts professional-prediction -U postgres -f /home/postgresql_data/professional.sql
+
+
+
+为数据库指定默认表空间
+ALTER DATABASE name SET TABLESPACE new_tablespace
+
+将表从一个表空间移到另一个表空间
+create table test_tsp03(id int) tablespace tp_lottu;
+alter table test_tsp03 set tablespace tsp01;
+
+/查看所有数据库的大小  
+select pg_database.datname, pg_database_size(pg_database.datname) AS size from pg_database; 
+
+
+
+select spcname from pg_tablespace;                          //查看所有表空间  
+select pg_size_pretty(pg_tablespace_size('pg_default'));    //查看表空间大小  
+
+
+
+
+
+PostgreSQL提供了一些性能调优的功能。主要有如下几个方面。
+1.使用EXPLAIN
+   EXPLAIN命令可以查看执行计划，这个方法是我们最主要的调试工具。
+ 
+2.及时更新执行计划中使用的统计信息
+   由于统计信息不是每次操作数据库都进行更新的，一般是在 VACUUM 、 ANALYZE 、 CREATE INDEX等DDL执行的时候会更新统计信息，  
+因此执行计划所用的统计信息很有可能比较旧。 这样执行计划的分析结果可能误差会变大。
+以下是表tenk1的相关的一部分统计信息。
+SELECT relname, relkind, reltuples, relpages
+FROM pg_class
+WHERE relname LIKE 'tenk1%';
+ 
+       relname                  | relkind | reltuples | relpages
+----------------------+---------+-----------+----------
+  tenk1                            | r       |     10000 |      358
+  tenk1_hundred                    | i       |     10000 |       30
+  tenk1_thous_tenthous             | i       |     10000 |       30
+  tenk1_unique1                    | i       |     10000 |       30
+  tenk1_unique2                    | i       |     10000 |       30
+(5 rows)
+其中 relkind是类型，r是自身表，i是索引index；reltuples是项目数；relpages是所占硬盘的块数。
+ 
+3.明确用join来关联表
+   一般写法：SELECT * FROM a, b, c WHERE a.id = b.id AND b.ref = c.id;
+  如果明确用join的话，执行时候执行计划相对容易控制一些。
+ 例子：
+    SELECT * FROM a CROSS JOIN b CROSS JOIN c WHERE a.id = b.id AND b.ref = c.id;
+    SELECT * FROM a JOIN (b JOIN c ON (b.ref = c.id)) ON (a.id = b.id);
+ 
+4.关闭自动提交（autocommit=false）
+ 
+5.多次插入数据用copy命令更高效
+   我们有的处理中要对同一张表执行很多次insert操作。这个时候我们用copy命令更有效率。因为insert一次，其相关的index都要做一次，比较花费时间。
+ 
+6.临时删除index
+   有时候我们在备份和重新导入数据的时候，如果数据量很大的话，要很几个小时才能完成。这个时候可以先把index删除掉。导入在建index。
+ 
+7.外键关联的删除
+   如果表的有外键的话，每次操作都没去check外键整合性。因此比较慢。数据导入后在建立外键也是一种选择。
+ 
+8.增加maintenance_work_mem参数大小
+   增加这个参数可以提升CREATE INDEX和ALTER TABLE ADD FOREIGN KEY的执行效率。
+ 
+9.增加checkpoint_segments参数的大小
+   增加这个参数可以提升大量数据导入时候的速度。
+ 
+10.设置archive_mode无效
+   这个参数设置为无效的时候，能够提升以下的操作的速度
+   ・CREATE TABLE AS SELECT
+   ・CREATE INDEX
+   ・ALTER TABLE SET TABLESPACE
+   ・CLUSTER等。
+ 
+11.最后执行VACUUM ANALYZE
+   表中数据大量变化的时候建议执行VACUUM ANALYZE。
+
+对生产运行的数据库要用定时任务crontb执行如下操作：
+
+psql -U username -d databasename -c "vacuum verbose analyze tablename;"
+
+
+              
+主要选项
+选项	默认值	说明	是否优化	原因
+max_connections	100	允许客户端连接的最大数目	否	因为在测试的过程中，100个连接已经足够
+
+fsync	on	强制把数据同步更新到磁盘	是	因为系统的IO压力很大，为了更好的测试其他配置的影响，把改参数改为off
+
+shared_buffers	24MB	决定有多少内存可以被PostgreSQL用于缓存数据（推荐内存的1/4)	是	在IO压力很大的情况下，提高该值可以减少IO
+
+wal_buffer	768kB	日志缓存区的大小	是	可以降低IO，如果遇上比较多的并发短事务，应该和commit_delay一起用
+
+work_mem	1MB	使内部排序和一些复杂的查询都在这个buffer中完成	是	有助提高排序等操作的速度，并且减低IO
+
+effective_cache_size	128MB	优化器假设一个查询可以用的最大内存，和shared_buffers无关（推荐内存的1/2)	是	设置稍大，优化器更倾向使用索引扫描而不是顺序扫描
+
+maintenance_work_mem	16MB	这里定义的内存只是被VACUUM等耗费资源较多的命令调用时使用	是	把该值调大，能加快命令的执行
+
+checkpoint_segments	3	设置wal log的最大数量数（一个log的大小为16M）	是	默认的48M的缓存是一个严重的瓶颈，基本上都要设置为10以上
+
+checkpoint_completion_target	0.5	表示checkpoint的完成时间要在两个checkpoint间隔时间的N%内完成	是	能降低平均写入的开销
+
+commit_delay	0	事务提交后，日志写到wal log上到wal_buffer写入到磁盘的时间间隔。需要配合commit_sibling	是	能够一次写入多个事务，减少IO，提高性能
+
+commit_siblings	5	设置触发commit_delay的并发事务数，根据并发事务多少来配置	是	减少IO，提高性能
+
+autovacuum	是否开启自动清理进程（如开启需要同时设置参数stats_start_collector = on，stats_row_level = on，），整理数据文件碎片，更新统计信息。	如果系统中有大量的增删改操作，建议打开自动清理进程，这样一方面可以增加数据文件的物理连续性，减少磁盘的随机IO，一方面可以随时更新数据库的统计信息，使优化器可以选择最优的查询计划得到最好的查询性能。如果系统中只有只读的事务，那么关闭自动清理进程。
+
+autovacuum_naptime	1min 自动清理进程执行清理分析的时间间隔	应该根据数据库的单位时间更新量来决定该值，一般来说单位时间的更新量越大该时间间隔应该设置越短。由于自动清理对系统的开销较大，该值应该谨慎配置（不要过小）。
+
+bgwriter_delay	后台写进程的自动执行时间	后台写进程的作用是将shared_buffer里的脏页面写回到磁盘，减少checkpoint的压力，如果系统数据修改的压力一直很大，建议将该时间间隔设置小一些，以免积累的大量的脏页面到checkpoint，使checkpoint时间过长（checkpoint期间系统响应速度较慢）。
+
+bgwriter_lru_maxpages	后台写进程一次写出的脏页面数	依据系统单位时间数据的增删改量来修改
+
+bgwriter_lru_multiplier	后台写进程根据最近服务进程需要的buffer数量乘上这个比率估算出下次服务进程需要的buffer数量，在使用后台写进程写回脏页面，使缓冲区能使用的干净页面达到这个估计值。	依据系统单位时间数据的增删改量来修改。
+
+
+
+
+
+
+
+
+max_connections = 200
+
+#根据数据量尽量调大shared_buffer值，把所有数据都放到内存中更好，
+
+#曾经在32G内存的服务器上把shared_buffert调到了26G
+
+#wal_buffers根据产生的wal日志量也适当设大点
+
+shared_buffers=1200MB
+wal_buffers = 2000kB
+
+#work_mem要适可而止，每个连接都要用这么大的
+
+work_mem = 1024kB
+
+#一般做做检查点的时间长于压力测试的时间，这样性能数据会更好，等压力测试完了再去做检查点吧。
+
+Checkpoint_timeout=120min
+
+bgwriter_delay = 10ms
+bgwriter_lru_maxpages = 75
+full_page_writes = off
+log_min_messages = fatal
+
+#压力测试时由于高并发等锁的时间可以长一些
+
+deadlock_timeout = 3s
+
+#平时实践有些应用中把位图扫描和顺序扫描关了性能会更好
+
+enable_bitmapscan = off
+enable_seqscan = off
+
+#如果是只读的压力测试，还可以关掉没事的后台写进程等
