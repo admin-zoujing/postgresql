@@ -98,8 +98,6 @@ select pg_size_pretty(pg_tablespace_size('pg_default'));    //查看表空间大
 
 
 
-
-
 PostgreSQL提供了一些性能调优的功能。主要有如下几个方面。
 1.使用EXPLAIN
    EXPLAIN命令可以查看执行计划，这个方法是我们最主要的调试工具。
